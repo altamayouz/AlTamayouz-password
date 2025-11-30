@@ -1,6 +1,5 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const nodemailer = require('nodemailer');
 const cors = require('cors');
 
 const app = express();
@@ -12,7 +11,7 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 // التحقق من وجود متغيرات البيئة الأساسية
-const requiredEnvVars = ['EMAIL_USER', 'EMAIL_PASS', 'ADMIN_PASSWORD'];
+const requiredEnvVars = ['ADMIN_PASSWORD'];
 requiredEnvVars.forEach(envVar => {
     if (!process.env[envVar]) {
         console.warn(`⚠️  تحذير: متغير البيئة ${envVar} غير موجود`);
@@ -22,27 +21,6 @@ requiredEnvVars.forEach(envVar => {
 // كلمة السر الصحيحة الحالية
 let CORRECT_PASSWORD = process.env.INITIAL_PASSWORD || "Abc1234";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-
-// إعدادات البريد الإلكتروني
-const emailConfig = {
-    service: 'gmail',
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-    }
-};
-
-// إنشاء transporter مرة واحدة - التصحيح هنا
-const transporter = nodemailer.createTransport(emailConfig); // createTransport ليس createTransporter
-
-// التحقق من اتصال البريد الإلكتروني عند بدء التشغيل
-transporter.verify(function(error, success) {
-    if (error) {
-        console.log('❌ فشل في الاتصال بخادم البريد:', error);
-    } else {
-        console.log('✅ تم الاتصال بخادم البريد بنجاح');
-    }
-});
 
 // دالة للتحقق من صحة كلمة السر
 function isValidPassword(password) {
@@ -70,35 +48,6 @@ function generateNewPassword() {
     return newPassword.split('').sort(() => 0.5 - Math.random()).join('');
 }
 
-// دالة لإرسال البريد الإلكتروني
-async function sendEmail(newPassword, action = 'تغيير تلقائي') {
-    try {
-        const mailOptions = {
-            from: `"نظام كلمات السر" <${emailConfig.auth.user}>`,
-            to: 'yousefkp2010@gmail.com',
-            subject: 'كلمة السر الجديدة - النظام',
-            text: `كلمة السر الجديدة هي: ${newPassword}\nالإجراء: ${action}`,
-            html: `
-                <div dir="rtl" style="font-family: Arial, sans-serif;">
-                    <h2 style="color: #2c3e50;">كلمة السر الجديدة</h2>
-                    <p>كلمة السر الجديدة للنظام هي: <strong style="color: #e74c3c; font-size: 18px;">${newPassword}</strong></p>
-                    <p><strong>الإجراء:</strong> ${action}</p>
-                    <p><strong>الوقت:</strong> ${new Date().toLocaleString('ar-EG')}</p>
-                    <hr style="margin: 20px 0;">
-                    <p style="color: #7f8c8d; font-size: 12px;">هذه رسالة تلقائية من نظام إدارة كلمات السر</p>
-                </div>
-            `
-        };
-        
-        await transporter.sendMail(mailOptions);
-        console.log(`✅ تم إرسال البريد الإلكتروني بنجاح - ${action}`);
-        return true;
-    } catch (error) {
-        console.error('❌ خطأ في إرسال البريد:', error.message);
-        return false;
-    }
-}
-
 // نقطة النهاية للتحقق من كلمة السر
 app.post('/verify-password', async (req, res) => {
     try {
@@ -123,22 +72,12 @@ app.post('/verify-password', async (req, res) => {
             const oldPassword = CORRECT_PASSWORD;
             CORRECT_PASSWORD = newPassword;
             
-            // إرسال البريد الإلكتروني في الخلفية دون انتظار
-            sendEmail(newPassword, 'تغيير تلقائي بعد التحقق الناجح')
-                .then(sent => {
-                    if (sent) {
-                        console.log(`✅ تم تغيير كلمة السر من ${oldPassword} إلى ${newPassword}`);
-                    } else {
-                        console.log(`⚠️ تم تغيير كلمة السر ولكن فشل إرسال البريد`);
-                    }
-                })
-                .catch(err => {
-                    console.error('❌ خطأ في إرسال البريد:', err);
-                });
+            console.log(`✅ تحقق ناجح - تم تغيير كلمة السر من ${oldPassword} إلى ${newPassword}`);
             
             return res.json({
                 success: true,
-                message: 'تم التحقق بنجاح وإرسال كلمة السر الجديدة إلى بريدك الإلكتروني'
+                message: 'تم التحقق بنجاح!',
+                newPassword: newPassword // نرسل كلمة السر الجديدة في الرد
             });
         } else {
             console.log(`❌ محاولة فاشلة بكلمة السر: ${password}`);
@@ -185,16 +124,12 @@ app.post('/admin/change-password', async (req, res) => {
         const oldPassword = CORRECT_PASSWORD;
         CORRECT_PASSWORD = newPassword;
         
-        // إرسال البريد الإلكتروني
-        const emailSent = await sendEmail(newPassword, 'تغيير يدوي من قبل المشرف');
-        
         console.log(`🔧 المشرف غير كلمة السر من ${oldPassword} إلى ${newPassword}`);
         
         return res.json({
             success: true,
-            message: emailSent 
-                ? 'تم تغيير كلمة السر بنجاح وإرسالها إلى البريد الإلكتروني'
-                : 'تم تغيير كلمة السر ولكن فشل إرسال البريد الإلكتروني'
+            message: 'تم تغيير كلمة السر بنجاح',
+            newPassword: newPassword
         });
         
     } catch (error) {
@@ -230,7 +165,6 @@ app.get('/admin/status', (req, res) => {
             systemStatus: {
                 currentPassword: CORRECT_PASSWORD,
                 passwordLength: CORRECT_PASSWORD.length,
-                emailConfigured: !!process.env.EMAIL_USER,
                 serverUptime: Math.floor(process.uptime()) + ' ثانية',
                 timestamp: new Date().toLocaleString('ar-EG')
             }
@@ -260,7 +194,7 @@ app.get('/health-check', (req, res) => {
 app.get('/', (req, res) => {
     res.json({
         message: 'مرحباً بك في سيرفر إدارة كلمات السر',
-        version: '2.1',
+        version: '3.0 - بدون إيميل',
         status: 'يعمل ✅',
         endpoints: {
             health: '/health-check',
@@ -288,6 +222,5 @@ app.listen(PORT, () => {
     console.log(`✅ السيرفر يعمل على المنفذ ${PORT}`);
     console.log(`📍 العنوان: http://localhost:${PORT}`);
     console.log(`🔐 كلمة السر الحالية: ${CORRECT_PASSWORD}`);
-    console.log(`📧 البريد الإلكتروني: ${process.env.EMAIL_USER ? 'مضبوط ✅' : 'غير مضبوط ❌'}`);
     console.log('====================================');
 });

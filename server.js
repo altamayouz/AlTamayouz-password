@@ -32,8 +32,8 @@ const emailConfig = {
     }
 };
 
-// إنشاء transporter مرة واحدة
-const transporter = nodemailer.createTransporter(emailConfig);
+// إنشاء transporter مرة واحدة - التصحيح هنا
+const transporter = nodemailer.createTransport(emailConfig); // createTransport ليس createTransporter
 
 // التحقق من اتصال البريد الإلكتروني عند بدء التشغيل
 transporter.verify(function(error, success) {

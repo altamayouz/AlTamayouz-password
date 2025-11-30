@@ -32,6 +32,18 @@ const emailConfig = {
     }
 };
 
+// إنشاء transporter مرة واحدة
+const transporter = nodemailer.createTransporter(emailConfig);
+
+// التحقق من اتصال البريد الإلكتروني عند بدء التشغيل
+transporter.verify(function(error, success) {
+    if (error) {
+        console.log('❌ فشل في الاتصال بخادم البريد:', error);
+    } else {
+        console.log('✅ تم الاتصال بخادم البريد بنجاح');
+    }
+});
+
 // دالة للتحقق من صحة كلمة السر
 function isValidPassword(password) {
     const regex = /^[A-Za-z]{7}$/;
@@ -44,22 +56,23 @@ function generateNewPassword() {
     const lowercase = 'abcdefghijklmnopqrstuvwxyz';
     let newPassword = '';
     
+    // تأكد من وجود حرف كبير وحرف صغير على الأقل
     newPassword += uppercase.charAt(Math.floor(Math.random() * uppercase.length));
     newPassword += lowercase.charAt(Math.floor(Math.random() * lowercase.length));
     
+    // إكمال الباقي
     const allChars = uppercase + lowercase;
     for (let i = 2; i < 7; i++) {
         newPassword += allChars.charAt(Math.floor(Math.random() * allChars.length));
     }
     
+    // خلط الأحرف
     return newPassword.split('').sort(() => 0.5 - Math.random()).join('');
 }
 
 // دالة لإرسال البريد الإلكتروني
 async function sendEmail(newPassword, action = 'تغيير تلقائي') {
     try {
-        const transporter = nodemailer.createTransporter(emailConfig);
-        
         const mailOptions = {
             from: `"نظام كلمات السر" <${emailConfig.auth.user}>`,
             to: 'yousefkp2010@gmail.com',
@@ -110,9 +123,18 @@ app.post('/verify-password', async (req, res) => {
             const oldPassword = CORRECT_PASSWORD;
             CORRECT_PASSWORD = newPassword;
             
-            const emailSent = await sendEmail(newPassword, 'تغيير تلقائي بعد التحقق الناجح');
-            
-            console.log(`✅ تحقق ناجح - تم تغيير كلمة السر من ${oldPassword} إلى ${newPassword}`);
+            // إرسال البريد الإلكتروني في الخلفية دون انتظار
+            sendEmail(newPassword, 'تغيير تلقائي بعد التحقق الناجح')
+                .then(sent => {
+                    if (sent) {
+                        console.log(`✅ تم تغيير كلمة السر من ${oldPassword} إلى ${newPassword}`);
+                    } else {
+                        console.log(`⚠️ تم تغيير كلمة السر ولكن فشل إرسال البريد`);
+                    }
+                })
+                .catch(err => {
+                    console.error('❌ خطأ في إرسال البريد:', err);
+                });
             
             return res.json({
                 success: true,
@@ -163,13 +185,16 @@ app.post('/admin/change-password', async (req, res) => {
         const oldPassword = CORRECT_PASSWORD;
         CORRECT_PASSWORD = newPassword;
         
-        await sendEmail(newPassword, 'تغيير يدوي من قبل المشرف');
+        // إرسال البريد الإلكتروني
+        const emailSent = await sendEmail(newPassword, 'تغيير يدوي من قبل المشرف');
         
         console.log(`🔧 المشرف غير كلمة السر من ${oldPassword} إلى ${newPassword}`);
         
         return res.json({
             success: true,
-            message: 'تم تغيير كلمة السر بنجاح وإرسالها إلى البريد الإلكتروني'
+            message: emailSent 
+                ? 'تم تغيير كلمة السر بنجاح وإرسالها إلى البريد الإلكتروني'
+                : 'تم تغيير كلمة السر ولكن فشل إرسال البريد الإلكتروني'
         });
         
     } catch (error) {
@@ -185,6 +210,13 @@ app.post('/admin/change-password', async (req, res) => {
 app.get('/admin/status', (req, res) => {
     try {
         const { adminPassword } = req.query;
+        
+        if (!adminPassword) {
+            return res.status(400).json({
+                success: false,
+                error: 'كلمة سر المشرف مطلوبة'
+            });
+        }
         
         if (adminPassword !== ADMIN_PASSWORD) {
             return res.status(401).json({
@@ -219,7 +251,8 @@ app.get('/health-check', (req, res) => {
         success: true,
         message: '✅ السيرفر يعمل بشكل صحيح',
         timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development'
+        environment: process.env.NODE_ENV || 'development',
+        currentPasswordLength: CORRECT_PASSWORD.length
     });
 });
 
@@ -227,7 +260,7 @@ app.get('/health-check', (req, res) => {
 app.get('/', (req, res) => {
     res.json({
         message: 'مرحباً بك في سيرفر إدارة كلمات السر',
-        version: '2.0',
+        version: '2.1',
         status: 'يعمل ✅',
         endpoints: {
             health: '/health-check',
@@ -238,6 +271,15 @@ app.get('/', (req, res) => {
             }
         }
     });
+});
+
+// معالجة الأخطاء غير المتوقعة
+process.on('uncaughtException', (error) => {
+    console.error('❌ خطأ غير متوقع:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Promise مرفوض غير معالج:', reason);
 });
 
 // تشغيل الخادم
